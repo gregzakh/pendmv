@@ -71,7 +71,7 @@ auto getlasterror(const DWORD err) {
   std::unique_ptr<HLOCAL, AutoDeleter<HLOCAL, AuLocalFree>> x(
     ((size = fmtmsg(err, loc)), loc)
   );
-  printf("[%c] %.*ws\n", ERROR_SUCCESS == err ? '*' : '!', size - 1, size ?
+  printf("[!] %.*ws\n", size - 1, size ?
          reinterpret_cast<LPWSTR>(loc) : L"Unknowsn error has been occured.");
 }
 

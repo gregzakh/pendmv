@@ -74,3 +74,20 @@ auto getlasterror(const DWORD err) {
   printf("[%c] %.*ws\n", ERROR_SUCCESS == err ? '*' : '!', size - 1, size ?
          reinterpret_cast<LPWSTR>(loc) : L"Unknowsn error has been occured.");
 }
+
+struct winerr {
+  void set(LSTATUS ls) {
+    status = ls;
+  }
+
+  bool get(void) {
+    if (ERROR_SUCCESS != status) {
+      getlasterror(status);
+      return true;
+    }
+    return false;
+  }
+
+  private:
+    LSTATUS status;
+};

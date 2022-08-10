@@ -10,28 +10,27 @@
 
 #include <windows.h>
 #include <cstdio>
+#include <string>
 #include <memory>
 #include <vector>
 #include <locale>
 
 #pragma comment (lib, "advapi32.lib")
 
-template<typename T, bool (*Cleanup)(T)>
+template<typename T, bool F(T)>
 struct AutoDeleter {
   using pointer = T;
 
-  void operator ()(T t) const {
-    if (!Cleanup(t))
-      printf("[!] Cleanup (%lu) fatal error.\n", ::GetLastError());
-#ifdef DEBUG
-    else
-      printf("[*] success.\n");
-#endif
+  void operator() (T t) const {
+    printf("[%c] status: %lu\n", F(t) ? '*' : '!', ::GetLastError());
   }
 };
 
-bool AuLocalFree(const HLOCAL h) { return nullptr == ::LocalFree(h); }
-bool AuRegCloseKey(const HKEY h) { return ERROR_SUCCESS == ::RegCloseKey(h); }
+bool fnLocalFree(const HLOCAL h) { return nullptr == ::LocalFree(h); }
+bool fnRegCloseKey(const HKEY h) { return ERROR_SUCCESS == ::RegCloseKey(h); }
+
+using _LocalFree = AutoDeleter<HLOCAL, fnLocalFree>;
+using _RegCloseKey = AutoDeleter<HKEY, fnRegCloseKey>;
 
 auto fmtmsg(const DWORD err, HLOCAL& h) {
   return ::FormatMessage(
@@ -41,53 +40,41 @@ auto fmtmsg(const DWORD err, HLOCAL& h) {
   );
 }
 
-auto ftime2stime(std::vector<BYTE>& buf) -> DWORD {
+auto ftm2stm(std::vector<BYTE>& v) {
   if (!::FileTimeToLocalFileTime(
-    reinterpret_cast<PFILETIME>(&buf[0]), reinterpret_cast<LPFILETIME>(&buf[0])
+    reinterpret_cast<PFILETIME>(&v[0]),
+    reinterpret_cast<LPFILETIME>(&v[0])
   )) return ::GetLastError();
   if (!::FileTimeToSystemTime(
-    reinterpret_cast<PFILETIME>(&buf[0]), reinterpret_cast<LPSYSTEMTIME>(&buf[0])
+    reinterpret_cast<PFILETIME>(&v[0]),
+    reinterpret_cast<LPSYSTEMTIME>(&v[0])
   )) return ::GetLastError();
-  return ERROR_SUCCESS;
+
+  return 0ul;
 }
 
-template<typename HKEY, typename PWSTR, typename... ArgTypes>
+template<typename... ArgTypes>
 auto queryvalue(const HKEY& key, const PWSTR val, ArgTypes... args) {
   return ::RegQueryValueEx(key, val, nullptr, nullptr, args...);
 }
 
-auto queryinfo(const HKEY& key, std::vector<BYTE>& buf) {
+auto queryinfo(const HKEY& key, std::vector<BYTE>& v) {
   return ::RegQueryInfoKey(
     key, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-    nullptr, nullptr, nullptr, reinterpret_cast<PFILETIME>(&buf[0])
+    nullptr, nullptr, nullptr, reinterpret_cast<PFILETIME>(&v[0])
   );
 }
 
 auto getlasterror(const DWORD err) {
-  std::locale::global(std::locale(""));
   HLOCAL loc{};
   DWORD size{};
 
-  std::unique_ptr<HLOCAL, AutoDeleter<HLOCAL, AuLocalFree>> x(
-    ((size = fmtmsg(err, loc)), loc)
-  );
-  printf("[!] %.*ws\n", size - 1, size ?
-         reinterpret_cast<LPWSTR>(loc) : L"Unknowsn error has been occured.");
+  std::locale::global(std::locale(""));
+  std::unique_ptr<HLOCAL, _LocalFree> x(((size = fmtmsg(err, loc)), loc));
+  std::wstring msg(reinterpret_cast<LPWSTR>(loc));
+  return msg.substr(0, size - sizeof(WCHAR));
 }
 
-struct winerr {
-  void set(LSTATUS ls) {
-    status = ls;
-  }
-
-  bool get(void) {
-    if (ERROR_SUCCESS != status) {
-      getlasterror(status);
-      return true;
-    }
-    return false;
-  }
-
-  private:
-    LSTATUS status;
-};
+auto err(LSTATUS ls) {
+  if (ERROR_SUCCESS != ls) throw (getlasterror(ls));
+}
